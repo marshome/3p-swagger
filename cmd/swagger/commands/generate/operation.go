@@ -36,6 +36,8 @@ type Operation struct {
 	NoValidator   bool     `long:"skip-validator" description:"when present will not generate a model validator"`
 	NoURLBuilder  bool     `long:"skip-url-builder" description:"when present will not generate a URL builder"`
 	DumpData      bool     `long:"dump-data" description:"when present dumps the json for the template generator instead of generating files"`
+	SkipFlattening  bool     `long:"skip-flatten" description:"skips flattening of spec prior to generation"`
+	SkipValidation  bool     `long:"skip-validation" description:"skips validation of spec prior to generation"`
 }
 
 // Execute generates a model file
@@ -67,21 +69,33 @@ func (o *Operation) Execute(args []string) error {
 		IncludeValidator:  !o.NoValidator,
 		IncludeURLBuilder: !o.NoURLBuilder,
 		Tags:              o.Tags,
+		FlattenSpec:			 !o.SkipFlattening,
+		ValidateSpec:      !o.SkipValidation,
 	}
 
-	if err := opts.EnsureDefaults(false); err != nil {
+	if err = opts.EnsureDefaults(false); err != nil {
 		return err
 	}
 
-	if err := configureOptsFromConfig(cfg, opts); err != nil {
+	if err = configureOptsFromConfig(cfg, opts); err != nil {
 		return err
 	}
 
-	if err := generator.GenerateServerOperation(o.Name, opts); err != nil {
+	if err = generator.GenerateServerOperation(o.Name, opts); err != nil {
 		return err
 	}
 
-	rp, err := filepath.Rel(".", opts.Target)
+	var basepath, rp, targetAbs string
+
+	basepath, err = filepath.Abs(".")
+	if err != nil {
+		return err
+	}
+	targetAbs, err = filepath.Abs(opts.Target)
+	if err != nil {
+		return err
+	}
+	rp, err = filepath.Rel(basepath, targetAbs)
 	if err != nil {
 		return err
 	}

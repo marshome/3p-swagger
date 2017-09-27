@@ -176,7 +176,7 @@ func DefaultSectionOpts(gen *GenOpts, client bool) {
 				ops = append(ops, TemplateOpts{
 					Name:     "parameters",
 					Source:   "asset:serverParameter",
-					Target:   "{{ if gt (len .Tags) 0 }}{{ joinFilePath .Target .ServerPackage .APIPackage .Package  }}{{ else }}{{ joinFilePath .Target .ServerPackage .Package  }}{{ end }}",
+					Target:   "{{ if eq (len .Tags) 1 }}{{ joinFilePath .Target .ServerPackage .APIPackage .Package  }}{{ else }}{{ joinFilePath .Target .ServerPackage .Package  }}{{ end }}",
 					FileName: "{{ (snakize (pascalize .Name)) }}_parameters.go",
 				})
 			}
@@ -184,7 +184,7 @@ func DefaultSectionOpts(gen *GenOpts, client bool) {
 				ops = append(ops, TemplateOpts{
 					Name:     "urlbuilder",
 					Source:   "asset:serverUrlbuilder",
-					Target:   "{{ if gt (len .Tags) 0 }}{{ joinFilePath .Target .ServerPackage .APIPackage .Package  }}{{ else }}{{ joinFilePath .Target .ServerPackage .Package  }}{{ end }}",
+					Target:   "{{ if eq (len .Tags) 1 }}{{ joinFilePath .Target .ServerPackage .APIPackage .Package  }}{{ else }}{{ joinFilePath .Target .ServerPackage .Package  }}{{ end }}",
 					FileName: "{{ (snakize (pascalize .Name)) }}_urlbuilder.go",
 				})
 			}
@@ -192,7 +192,7 @@ func DefaultSectionOpts(gen *GenOpts, client bool) {
 				ops = append(ops, TemplateOpts{
 					Name:     "responses",
 					Source:   "asset:serverResponses",
-					Target:   "{{ if gt (len .Tags) 0 }}{{ joinFilePath .Target .ServerPackage .APIPackage .Package  }}{{ else }}{{ joinFilePath .Target .ServerPackage .Package  }}{{ end }}",
+					Target:   "{{ if eq (len .Tags) 1 }}{{ joinFilePath .Target .ServerPackage .APIPackage .Package  }}{{ else }}{{ joinFilePath .Target .ServerPackage .Package  }}{{ end }}",
 					FileName: "{{ (snakize (pascalize .Name)) }}_responses.go",
 				})
 			}
@@ -200,7 +200,7 @@ func DefaultSectionOpts(gen *GenOpts, client bool) {
 				ops = append(ops, TemplateOpts{
 					Name:     "handler",
 					Source:   "asset:serverOperation",
-					Target:   "{{ if gt (len .Tags) 0 }}{{ joinFilePath .Target .ServerPackage .APIPackage .Package  }}{{ else }}{{ joinFilePath .Target .ServerPackage .Package  }}{{ end }}",
+					Target:   "{{ if eq (len .Tags) 1 }}{{ joinFilePath .Target .ServerPackage .APIPackage .Package  }}{{ else }}{{ joinFilePath .Target .ServerPackage .Package  }}{{ end }}",
 					FileName: "{{ (snakize (pascalize .Name)) }}.go",
 				})
 			}
@@ -311,6 +311,7 @@ type GenOpts struct {
 	DumpData          bool
 	WithContext       bool
 	ValidateSpec      bool
+	FlattenSpec				bool
 	defaultsEnsured   bool
 
 	Spec              string
@@ -335,6 +336,7 @@ type GenOpts struct {
 	FlagStrategy      string
 	CompatibilityMode string
 	ExistingModels    string
+	Copyright         string
 }
 
 // TargetPath returns the target path relative to the server package
@@ -769,3 +771,33 @@ func pruneEmpty(in []string) (out []string) {
 func trimBOM(in string) string {
 	return strings.Trim(in, "\xef\xbb\xbf")
 }
+
+func validateAndFlattenSpec(opts *GenOpts, specDoc *loads.Document) (*loads.Document, error) {
+
+	var err error
+
+	// Validate if needed
+	if opts.ValidateSpec {
+		if err := validateSpec(opts.Spec, specDoc); err != nil {
+			return specDoc,err
+		}
+	}
+
+	// Restore spec to original
+	opts.Spec, specDoc, err = loadSpec(opts.Spec)
+	if err != nil {
+		return nil, err
+	}
+
+	// Flatten if needed
+	if opts.FlattenSpec {
+		flattenOpts := analysis.FlattenOpts{
+			BasePath: specDoc.SpecFilePath(),
+			Spec:     analysis.New(specDoc.Spec()),
+		}
+		err = analysis.Flatten(flattenOpts)
+	}
+
+	return specDoc,nil
+}
+

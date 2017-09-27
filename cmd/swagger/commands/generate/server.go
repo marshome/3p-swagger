@@ -16,6 +16,7 @@ package generate
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,6 +43,7 @@ type Server struct {
 	FlagStrategy      string   `long:"flag-strategy" description:"the strategy to provide flags for the server" default:"go-flags" choice:"go-flags" choice:"pflag"`
 	CompatibilityMode string   `long:"compatibility-mode" description:"the compatibility mode for the tls server" default:"modern" choice:"modern" choice:"intermediate"`
 	SkipValidation    bool     `long:"skip-validation" description:"skips validation of spec prior to generation"`
+	SkipFlattening  bool     `long:"skip-flatten" description:"skips flattening of spec prior to generation"`
 }
 
 // Execute runs this command
@@ -58,6 +60,20 @@ func (s *Server) Execute(args []string) error {
 
 	if s.ExistingModels != "" {
 		s.SkipModels = true
+	}
+
+	var bytebuffer []byte
+	var copyrightstr string
+	copyrightfile := string(s.CopyrightFile)
+	if copyrightfile != "" {
+		//Read the Copyright from file path in opts
+		bytebuffer, err = ioutil.ReadFile(copyrightfile)
+		if err != nil {
+			return err
+		}
+		copyrightstr = string(bytebuffer)
+	} else {
+		copyrightstr = ""
 	}
 
 	opts := &generator.GenOpts{
@@ -78,6 +94,7 @@ func (s *Server) Execute(args []string) error {
 		IncludeMain:       !s.ExcludeMain,
 		IncludeSupport:    !s.SkipSupport,
 		ValidateSpec:      !s.SkipValidation,
+		FlattenSpec:			 !s.SkipFlattening,
 		ExcludeSpec:       s.ExcludeSpec,
 		TemplateDir:       string(s.TemplateDir),
 		WithContext:       s.WithContext,
@@ -89,6 +106,7 @@ func (s *Server) Execute(args []string) error {
 		FlagStrategy:      s.FlagStrategy,
 		CompatibilityMode: s.CompatibilityMode,
 		ExistingModels:    s.ExistingModels,
+		Copyright:         copyrightstr,
 	}
 
 	if e := opts.EnsureDefaults(false); e != nil {
@@ -102,8 +120,17 @@ func (s *Server) Execute(args []string) error {
 	if e := generator.GenerateServer(s.Name, s.Models, s.Operations, opts); e != nil {
 		return e
 	}
+	var basepath, rp, targetAbs string
 
-	rp, err := filepath.Rel(".", opts.Target)
+	basepath, err = filepath.Abs(".")
+	if err != nil {
+		return err
+	}
+	targetAbs, err = filepath.Abs(opts.Target)
+	if err != nil {
+		return err
+	}
+	rp, err = filepath.Rel(basepath, targetAbs)
 	if err != nil {
 		return err
 	}
