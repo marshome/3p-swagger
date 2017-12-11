@@ -7,6 +7,8 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/analysis"
@@ -84,7 +86,7 @@ func testAppGenerator(t testing.TB, specPath, name string) (*appGenerator, error
 
 func TestServer_UrlEncoded(t *testing.T) {
 	log.SetOutput(ioutil.Discard)
-	defer log.SetOutput(os.Stderr)
+	defer log.SetOutput(os.Stdout)
 	gen, err := testAppGenerator(t, "../fixtures/codegen/simplesearch.yml", "search")
 	if assert.NoError(t, err) {
 		app, err := gen.makeCodegenApp()
@@ -115,7 +117,7 @@ func TestServer_UrlEncoded(t *testing.T) {
 
 func TestServer_MultipartForm(t *testing.T) {
 	log.SetOutput(ioutil.Discard)
-	defer log.SetOutput(os.Stderr)
+	defer log.SetOutput(os.Stdout)
 	gen, err := testAppGenerator(t, "../fixtures/codegen/shipyard.yml", "shipyard")
 	if assert.NoError(t, err) {
 		app, err := gen.makeCodegenApp()
@@ -153,7 +155,7 @@ func TestServer_InvalidSpec(t *testing.T) {
 
 func TestServer_TrailingSlash(t *testing.T) {
 	log.SetOutput(ioutil.Discard)
-	defer log.SetOutput(os.Stderr)
+	defer log.SetOutput(os.Stdout)
 	gen, err := testAppGenerator(t, "../fixtures/bugs/899/swagger.yml", "trailing slash")
 	if assert.NoError(t, err) {
 		app, err := gen.makeCodegenApp()
@@ -174,7 +176,7 @@ func TestServer_TrailingSlash(t *testing.T) {
 
 func TestServer_Issue987(t *testing.T) {
 	log.SetOutput(ioutil.Discard)
-	defer log.SetOutput(os.Stderr)
+	defer log.SetOutput(os.Stdout)
 	gen, err := testAppGenerator(t, "../fixtures/bugs/987/swagger.yml", "deeper consumes produces")
 	if assert.NoError(t, err) {
 		app, err := gen.makeCodegenApp()
@@ -198,7 +200,7 @@ func TestServer_Issue987(t *testing.T) {
 
 func TestServer_FilterByTag(t *testing.T) {
 	log.SetOutput(ioutil.Discard)
-	defer log.SetOutput(os.Stderr)
+	defer log.SetOutput(os.Stdout)
 	gen, err := testAppGenerator(t, "../fixtures/codegen/simplesearch.yml", "search")
 	if assert.NoError(t, err) {
 		gen.GenOpts.Tags = []string{"search"}
@@ -216,5 +218,117 @@ func TestServer_FilterByTag(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// Checking error handling code: panic on mismatched template
+// High level test with AppGenerator
+func badTemplateCall() {
+	log.SetOutput(ioutil.Discard)
+	defer log.SetOutput(os.Stdout)
+
+	gen, err := testAppGenerator(nil, "../fixtures/bugs/899/swagger.yml", "trailing slash")
+	if err != nil {
+		return
+	}
+	app, err := gen.makeCodegenApp()
+	log.SetOutput(ioutil.Discard)
+	if err != nil {
+		return
+	}
+	buf := bytes.NewBuffer(nil)
+	r := templates.MustGet("serverBuilderX").Execute(buf, app)
+
+	// Should never reach here
+	log.Printf("%+v\n", r)
+}
+
+func TestServer_BadTemplate(t *testing.T) {
+	log.SetOutput(ioutil.Discard)
+	defer log.SetOutput(os.Stdout)
+
+	assert.Panics(t, badTemplateCall, "templates.MustGet() did not panic() as currently expected")
+}
+
+// Checking error handling code: panic on bad parsing template
+// High level test with AppGenerator
+func badParseCall() {
+	log.SetOutput(ioutil.Discard)
+	defer log.SetOutput(os.Stdout)
+
+	var badParse = `{{{ define "T1" }}T1{{end}}{{ define "T2" }}T2{{end}}`
+
+	templates.AddFile("badparse", badParse)
+	gen, _ := testAppGenerator(nil, "../fixtures/bugs/899/swagger.yml", "trailing slash")
+	app, _ := gen.makeCodegenApp()
+	log.SetOutput(ioutil.Discard)
+	tpl := templates.MustGet("badparse")
+
+	// Should never reach here
+	buf := bytes.NewBuffer(nil)
+	r := tpl.Execute(buf, app)
+
+	log.Printf("%+v\n", r)
+}
+
+func TestServer_ErrorParsingTemplate(t *testing.T) {
+	log.SetOutput(ioutil.Discard)
+	defer log.SetOutput(os.Stdout)
+
+	assert.Panics(t, badParseCall, "templates.MustGet() did not panic() as currently expected")
+}
+
+func TestServer_OperationGroups(t *testing.T) {
+	log.SetOutput(ioutil.Discard)
+	defer func() {
+		log.SetOutput(os.Stdout)
+		os.RemoveAll(filepath.Join(".", "restapi"))
+		os.RemoveAll(filepath.Join(".", "search"))
+		os.RemoveAll(filepath.Join(".", "tasks"))
+	}()
+
+	gen, err := testAppGenerator(t, "../fixtures/codegen/simplesearch.yml", "search")
+	if assert.NoError(t, err) {
+		gen.GenOpts.Tags = []string{"search", "tasks"}
+		gen.GenOpts.IncludeModel = false
+		gen.GenOpts.IncludeHandler = true
+		gen.GenOpts.Sections.OperationGroups = []TemplateOpts{
+			{
+				Name:     "opGroupTest",
+				Source:   "asset:opGroupTest",
+				Target:   "{{ joinFilePath .Target .Name }}",
+				FileName: "{{ (snakize (pascalize .Name)) }}_opgroup_test.gol",
+			},
+		}
+		err := gen.Generate()
+		// This attempts fails: template not declared
+		assert.Error(t, err)
+		// Tolerates case variations on error message
+		assert.Contains(t, strings.ToLower(err.Error()), "template doesn't exist")
+
+		var opGroupTpl = `
+// OperationGroupName={{.Name}}
+// RootPackage={{.RootPackage}}
+{{ range .Operations }}
+	// OperationName={{.Name}}
+{{end}}`
+		templates.AddFile("opGroupTest", opGroupTpl)
+		err = gen.Generate()
+		assert.NoError(t, err)
+		//buf := bytes.NewBuffer(nil)
+		genContent, erf := ioutil.ReadFile("./search/search_opgroup_test.gol")
+		assert.NoError(t, erf, "Generator should have written a file")
+		assert.Contains(t, string(genContent), "// OperationGroupName=search")
+		assert.Contains(t, string(genContent), "// RootPackage=operations")
+		assert.Contains(t, string(genContent), "// OperationName=search")
+
+		genContent, erf = ioutil.ReadFile("./tasks/tasks_opgroup_test.gol")
+		assert.NoError(t, erf, "Generator should have written a file")
+		assert.Contains(t, string(genContent), "// OperationGroupName=tasks")
+		assert.Contains(t, string(genContent), "// RootPackage=operations")
+		assert.Contains(t, string(genContent), "// OperationName=createTask")
+		assert.Contains(t, string(genContent), "// OperationName=deleteTask")
+		assert.Contains(t, string(genContent), "// OperationName=getTasks")
+		assert.Contains(t, string(genContent), "// OperationName=updateTask")
 	}
 }

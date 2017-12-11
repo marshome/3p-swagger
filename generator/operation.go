@@ -29,7 +29,6 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/spec"
 	"github.com/go-openapi/swag"
-
 )
 
 type respSort struct {
@@ -74,7 +73,7 @@ func GenerateServerOperation(operationNames []string, opts *GenOpts) error {
 	}
 
 	// Validate and Expand. specDoc is in/out param.
-	specDoc,err = validateAndFlattenSpec(opts, specDoc)
+	specDoc, err = validateAndFlattenSpec(opts, specDoc)
 	if err != nil {
 		return err
 	}
@@ -214,7 +213,7 @@ func (o *operationGenerator) Generate() error {
 
 	bldr.DefaultImports = []string{o.GenOpts.ExistingModels}
 	if o.GenOpts.ExistingModels == "" {
-		bldr.DefaultImports = []string{filepath.ToSlash(filepath.Join(baseImport(o.Base), o.ModelsPackage))}
+		bldr.DefaultImports = []string{filepath.ToSlash(filepath.Join(o.GenOpts.LanguageOpts.baseImport(o.Base), o.ModelsPackage))}
 	}
 
 	bldr.APIPackage = bldr.RootAPIPackage
@@ -304,7 +303,7 @@ func (b *codeGenOpBuilder) MakeOperation() (GenOperation, error) {
 	}
 	// @eleanorrigby : letting the comment be. Commented in response to issue#890
 	// Post-flattening of spec we no longer need to reset defs for spec or use original spec in any case.
-	resolver := newTypeResolver(b.ModelsPackage, b.Doc/*.ResetDefinitions()*/)
+	resolver := newTypeResolver(b.ModelsPackage, b.Doc /*.ResetDefinitions()*/)
 	receiver := "o"
 
 	operation := b.Operation
@@ -465,7 +464,8 @@ func (b *codeGenOpBuilder) MakeOperation() (GenOperation, error) {
 	}
 	return GenOperation{
 		GenCommon: GenCommon{
-			Copyright: b.GenOpts.Copyright,
+			Copyright:        b.GenOpts.Copyright,
+			TargetImportPath: filepath.ToSlash(b.GenOpts.LanguageOpts.baseImport(b.GenOpts.Target)),
 		},
 		Package:              b.APIPackage,
 		RootPackage:          b.RootAPIPackage,
@@ -585,7 +585,7 @@ func (b *codeGenOpBuilder) MakeResponse(receiver, name string, isSuccess bool, r
 		rslv := resolver
 		sch := resp.Schema
 		if resp.Schema.Ref.String() != "" && !resp.Schema.Ref.HasFragmentOnly {
-			ss, err := spec.ResolveRefWithBase(b.Doc.Spec(), &resp.Schema.Ref, &spec.ExpandOptions{RelativeBase: b.Doc.SpecFilePath()})
+			ss, err := spec.ResolveRefWithBase(b.Doc.Spec(), &resp.Schema.Ref, nil)
 			if err != nil {
 				return GenResponse{}, err
 			}
@@ -834,7 +834,7 @@ func (b *codeGenOpBuilder) MakeParameter(receiver string, resolver *typeResolver
 		rslv := resolver
 		sch := param.Schema
 		if sch.Ref.String() != "" && !sch.Ref.HasFragmentOnly {
-			ss, err := spec.ResolveRefWithBase(b.Doc.Spec(), &sch.Ref, &spec.ExpandOptions{RelativeBase: b.Doc.SpecFilePath()})
+			ss, err := spec.ResolveRefWithBase(b.Doc.Spec(), &sch.Ref, nil)
 			if err != nil {
 				return GenParameter{}, err
 			}

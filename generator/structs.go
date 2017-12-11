@@ -14,8 +14,12 @@ import (
 
 // GenCommon contains common properties needed across
 // definitions, app and operations
+// TargetImportPath may be used by templates to import other (possibly
+// generated) packages in the generation path (e.g. relative to GOPATH).
+// TargetImportPath is NOT used by standard templates.
 type GenCommon struct {
-	Copyright string
+	Copyright        string
+	TargetImportPath string
 }
 
 // GenDefinition contains all the properties to generate a
@@ -405,9 +409,13 @@ type GenApp struct {
 	Operations          GenOperations
 	OperationGroups     GenOperationGroups
 	SwaggerJSON         string
-	ExcludeSpec         bool
-	WithContext         bool
-	GenOpts             *GenOpts
+	// this is important for when the generated server adds routes
+	// ideally this should be removed after we code-generate the router instead of relying on runtime
+	// CAUTION: Could be problematic for big specs (might consume large amounts of memory)
+	FlatSwaggerJSON string
+	ExcludeSpec     bool
+	WithContext     bool
+	GenOpts         *GenOpts
 }
 
 // UseGoStructFlags returns true when no strategy is specified or it is set to "go-flags"

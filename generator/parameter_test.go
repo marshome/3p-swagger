@@ -17,6 +17,9 @@ package generator
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
+	"log"
+	"os"
 	"testing"
 
 	"github.com/go-openapi/spec"
@@ -875,6 +878,11 @@ func TestGenParameter_Issue1010_Server(t *testing.T) {
 }
 
 func TestGenParameter_Issue710(t *testing.T) {
+	log.SetOutput(ioutil.Discard)
+	defer func() {
+		log.SetOutput(os.Stdout)
+	}()
+
 	assert := assert.New(t)
 
 	gen, err := opBuilder("createTask", "../fixtures/codegen/todolist.allparams.yml")
@@ -899,8 +907,12 @@ func TestGenParameter_Issue710(t *testing.T) {
 
 func TestGenParameter_Issue776_LocalFileRef(t *testing.T) {
 	spec.Debug = true
-	defer func() { spec.Debug = false }()
-	b, err := opBuilder("GetItem", "../fixtures/bugs/776/param.yaml")
+	log.SetOutput(ioutil.Discard)
+	defer func() {
+		spec.Debug = false
+		log.SetOutput(os.Stdout)
+	}()
+	b, err := opBuilderWithFlatten("GetItem", "../fixtures/bugs/776/param.yaml")
 	if assert.NoError(t, err) {
 		op, err := b.MakeOperation()
 		if assert.NoError(t, err) {
@@ -909,19 +921,10 @@ func TestGenParameter_Issue776_LocalFileRef(t *testing.T) {
 			if assert.NoError(t, templates.MustGet("serverParameter").Execute(&buf, op)) {
 				ff, err := opts.LanguageOpts.FormatContent("do_empty_responses.go", buf.Bytes())
 				if assert.NoError(t, err) {
-					assertInCode(t, "Body *GetItemParamsBody", string(ff))
+					assertInCode(t, "Body *models.Item", string(ff))
 					assertNotInCode(t, "type GetItemParamsBody struct", string(ff))
 				} else {
 					fmt.Println(buf.String())
-				}
-			}
-			var buf2 bytes.Buffer
-			if assert.NoError(t, templates.MustGet("serverOperation").Execute(&buf2, op)) {
-				ff, err := opts.LanguageOpts.FormatContent("do_empty_responses.go", buf2.Bytes())
-				if assert.NoError(t, err) {
-					assertInCode(t, "type GetItemParamsBody struct", string(ff))
-				} else {
-					fmt.Println(buf2.String())
 				}
 			}
 		}
@@ -944,6 +947,33 @@ func TestGenParameter_Issue1111(t *testing.T) {
 				if assert.NoError(err) {
 					res := string(ff)
 					assertInCode(t, `r.SetPathParam("instance_ids", joinedInstanceIds[0])`, res)
+				} else {
+					fmt.Println(buf.String())
+				}
+			}
+		}
+	}
+}
+
+func TestGenParameter_Issue1199(t *testing.T) {
+	assert := assert.New(t)
+	var assertion = `if o.Body != nil {
+		if err := r.SetBodyParam(o.Body); err != nil {
+			return err
+		}
+	}`
+	gen, err := opBuilder("move-clusters", "../fixtures/bugs/1199/nonEmptyBody.json")
+	if assert.NoError(err) {
+		op, err := gen.MakeOperation()
+		if assert.NoError(err) {
+			buf := bytes.NewBuffer(nil)
+			opts := opts()
+			err := templates.MustGet("clientParameter").Execute(buf, op)
+			if assert.NoError(err) {
+				ff, err := opts.LanguageOpts.FormatContent("move_clusters_parameters.go", buf.Bytes())
+				if assert.NoError(err) {
+					res := string(ff)
+					assertInCode(t, assertion, res)
 				} else {
 					fmt.Println(buf.String())
 				}

@@ -17,6 +17,9 @@ package generator
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
+	"log"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -255,10 +258,10 @@ func TestGenerateModel_Primitives(t *testing.T) {
 		val.Name = "theType"
 		exp := v.Expected
 		if val.IsInterface || val.IsStream {
-			tt.assertRender(val, "\n  \n  \n    type TheType "+exp+"\n  \n")
+			tt.assertRender(val, "type TheType "+exp+"\n  \n")
 			continue
 		}
-		tt.assertRender(val, "\n  \n  \n    type TheType "+exp+"\n  // Validate validates this the type\nfunc (o theType) Validate(formats strfmt.Registry) error {\n  return nil\n}\n")
+		tt.assertRender(val, "type TheType "+exp+"\n  // Validate validates this the type\nfunc (o theType) Validate(formats strfmt.Registry) error {\n  return nil\n}\n")
 	}
 }
 
@@ -1991,7 +1994,7 @@ func TestGenModel_Issue981(t *testing.T) {
 				ct, err := opts.LanguageOpts.FormatContent("user.go", buf.Bytes())
 				if assert.NoError(t, err) {
 					res := string(ct)
-					fmt.Println(res)
+					//fmt.Println(res)
 					assertInCode(t, "FirstName string `json:\"first_name,omitempty\"`", res)
 					assertInCode(t, "LastName string `json:\"last_name,omitempty\"`", res)
 					assertInCode(t, "if swag.IsZero(m.Type)", res)
@@ -2004,4 +2007,126 @@ func TestGenModel_Issue981(t *testing.T) {
 		}
 	}
 
+}
+
+func TestGenModel_Issue774(t *testing.T) {
+	specDoc, err := loads.Spec("../fixtures/bugs/774/swagger.yml")
+	if assert.NoError(t, err) {
+		definitions := specDoc.Spec().Definitions
+		k := "Foo"
+		schema := definitions[k]
+		opts := opts()
+		genModel, err := makeGenDefinition(k, "models", schema, specDoc, opts)
+		if assert.NoError(t, err) {
+			buf := bytes.NewBuffer(nil)
+			err := templates.MustGet("model").Execute(buf, genModel)
+			if assert.NoError(t, err) {
+				ff, err := opts.LanguageOpts.FormatContent("Foo.go", buf.Bytes())
+				if assert.NoError(t, err) {
+					res := string(ff)
+					//fmt.Println(res)
+					assertInCode(t, "HasOmitEmptyFalse []string `json:\"hasOmitEmptyFalse\"`", res)
+					assertInCode(t, "HasOmitEmptyTrue []string `json:\"hasOmitEmptyTrue,omitempty\"`", res)
+					assertInCode(t, "NoOmitEmpty []string `json:\"noOmitEmpty\"`", res)
+				} else {
+					fmt.Println(buf.String())
+				}
+			}
+		}
+	}
+}
+
+// Non-regression when Debug mode activated
+// Run everything again in Debug mode, just to make
+// sure no side effect has been added while debugging
+// TODO: remove it when no more "if Debug {}" branches are
+// present in source code.
+func TestDebugModelEntries(t *testing.T) {
+	Debug = true
+	log.SetOutput(ioutil.Discard)
+	// Verification only: temporarily mute stderr for possible debug logs to stderr
+	//origStdout := os.Stdout
+	//origStderr := os.Stderr
+	//f, err := os.OpenFile("stderr.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	//if err != nil {
+	//	panic("Test interrupted: cannot redirect stderr to log file")
+	//}
+	//os.Stdout = ioutil.Discard
+	//os.Stderr = f
+
+	defer func() {
+		log.SetOutput(os.Stdout)
+		//os.Stderr = origStderr
+		Debug = false
+	}()
+
+	TestGenerateModel_Sanity(t)
+	TestGenerateModel_DocString(t)
+	TestGenerateModel_PropertyValidation(t)
+	TestGenerateModel_SchemaField(t)
+	TestGenSchemaType(t)
+	TestGenerateModel_Primitives(t)
+	TestGenerateModel_Nota(t)
+	TestGenerateModel_NotaWithRef(t)
+	TestGenerateModel_NotaWithMeta(t)
+	TestGenerateModel_RunParameters(t)
+	TestGenerateModel_NotaWithName(t)
+	TestGenerateModel_NotaWithRefRegistry(t)
+	TestGenerateModel_WithCustomTag(t)
+	TestGenerateModel_NotaWithMetaRegistry(t)
+	TestGenerateModel_WithMap(t)
+	TestGenerateModel_WithMapInterface(t)
+	TestGenerateModel_WithMapRef(t)
+	TestGenerateModel_WithMapComplex(t)
+	TestGenerateModel_WithMapRegistry(t)
+	TestGenerateModel_WithMapRegistryRef(t)
+	TestGenerateModel_WithMapComplexRegistry(t)
+	TestGenerateModel_WithAdditional(t)
+	TestGenerateModel_JustRef(t)
+	TestGenerateModel_WithRef(t)
+	TestGenerateModel_WithNullableRef(t)
+	TestGenerateModel_Scores(t)
+	TestGenerateModel_JaggedScores(t)
+	TestGenerateModel_Notables(t)
+	TestGenerateModel_Notablix(t)
+	TestGenerateModel_Stats(t)
+	TestGenerateModel_Statix(t)
+	TestGenerateModel_WithItems(t)
+	TestGenerateModel_WithComplexItems(t)
+	TestGenerateModel_WithItemsAndAdditional(t)
+	TestGenerateModel_WithItemsAndAdditional2(t)
+	TestGenerateModel_WithComplexAdditional(t)
+	TestGenerateModel_SimpleTuple(t)
+	TestGenerateModel_TupleWithExtra(t)
+	TestGenerateModel_TupleWithComplex(t)
+	TestGenerateModel_WithTuple(t)
+	TestGenerateModel_WithTupleWithExtra(t)
+	TestGenerateModel_WithAllOfAndDiscriminator(t)
+	TestGenerateModel_WithAllOfAndDiscriminatorAndArrayOfPolymorphs(t)
+	TestGenerateModel_WithAllOf(t)
+	TestNumericKeys(t)
+	TestGenModel_Issue196(t)
+	TestGenModel_Issue222(t)
+	TestGenModel_Issue243(t)
+	TestGenModel_Issue252(t)
+	TestGenModel_Issue251(t)
+	TestGenModel_Issue257(t)
+	TestGenModel_Issue340(t)
+	TestGenModel_Issue381(t)
+	TestGenModel_Issue300(t)
+	TestGenModel_Issue398(t)
+	TestGenModel_Issue454(t)
+	TestGenModel_Issue423(t)
+	TestGenModel_Issue453(t)
+	TestGenModel_Issue455(t)
+	TestGenModel_Issue763(t)
+	TestGenModel_Issue811_NullType(t)
+	TestGenModel_Issue811_Emojis(t)
+	TestGenModel_Issue752_EOFErr(t)
+	TestImports_ExistingModel(t)
+	TestGenModel_Issue786(t)
+	TestGenModel_Issue822(t)
+	TestGenModel_Issue981(t)
+	TestGenModel_Issue774(t)
+	Debug = false
 }

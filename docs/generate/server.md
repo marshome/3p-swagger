@@ -46,6 +46,7 @@ Help Options:
           --flag-strategy=[go-flags|pflag]           the strategy to provide flags for the server (default: go-flags)
           --compatibility-mode=[modern|intermediate] the compatibility mode for the tls server (default: modern)
           --skip-validation                          skips validation of spec prior to generation
+      -r, --copyright-file=                          the file containing a copyright header for the generated source
 ```
 
 The server application gets generated with all the handlers stubbed out with a not implemented handler. That means that you can start the API server immediately after generating it. It will respond to all valid requests with 501 Not Implemented. When a request is invalid it will most likely respond with an appropriate 4xx response.
@@ -120,7 +121,7 @@ func newCompleteMiddleware(ctx *middleware.Context) http.Handler {
 }
 ```
 
-Prior to handling requests however you probably want to configure the API with some actual implementations.  To do that you have to edit the configure_xxx_api.go file.  That file will only be generated the first time you generate a server application from a swagger spec. So the generated server uses this file to let you fill in the blanks.
+Prior to handling requests however you probably want to configure the API with some actual implementations.  To do that you have to edit the configure_xxx.go file.  That file will only be generated the first time you generate a server application from a swagger spec. So the generated server uses this file to let you fill in the blanks.
 
 For the todolist application that file looks like:
 

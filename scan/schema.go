@@ -92,6 +92,7 @@ func (sv schemaValidations) SetMaxLength(val int64)     { sv.current.MaxLength =
 func (sv schemaValidations) SetPattern(val string)      { sv.current.Pattern = val }
 func (sv schemaValidations) SetUnique(val bool)         { sv.current.UniqueItems = val }
 func (sv schemaValidations) SetDefault(val interface{}) { sv.current.Default = val }
+func (sv schemaValidations) SetExample(val interface{}) { sv.current.Example = val }
 func (sv schemaValidations) SetEnum(val string) {
 	list := strings.Split(val, ",")
 	interfaceSlice := make([]interface{}, len(list))
@@ -727,6 +728,8 @@ func (scp *schemaParser) createParser(nm string, schema, ps *spec.Schema, fld *a
 			newSingleLineTagParser("unique", &setUnique{schemaValidations{ps}, rxf(rxUniqueFmt, "")}),
 			newSingleLineTagParser("enum", &setEnum{schemaValidations{ps}, rxf(rxEnumFmt, "")}),
 			newSingleLineTagParser("default", &setDefault{&spec.SimpleSchema{Type: string(schemeType)}, schemaValidations{ps}, rxf(rxDefaultFmt, "")}),
+			newSingleLineTagParser("type", &setDefault{&spec.SimpleSchema{Type: string(schemeType)}, schemaValidations{ps}, rxf(rxDefaultFmt, "")}),
+			newSingleLineTagParser("example", &setExample{&spec.SimpleSchema{Type: string(schemeType)}, schemaValidations{ps}, rxf(rxExampleFmt, "")}),
 			newSingleLineTagParser("required", &setRequiredSchema{schema, nm}),
 			newSingleLineTagParser("readOnly", &setReadOnlySchema{ps}),
 			newSingleLineTagParser("discriminator", &setDiscriminator{schema, nm}),
@@ -751,6 +754,7 @@ func (scp *schemaParser) createParser(nm string, schema, ps *spec.Schema, fld *a
 				newSingleLineTagParser(fmt.Sprintf("items%dUnique", level), &setUnique{schemaValidations{items}, rxf(rxUniqueFmt, itemsPrefix)}),
 				newSingleLineTagParser(fmt.Sprintf("items%dEnum", level), &setEnum{schemaValidations{items}, rxf(rxEnumFmt, itemsPrefix)}),
 				newSingleLineTagParser(fmt.Sprintf("items%dDefault", level), &setDefault{&spec.SimpleSchema{Type: string(schemeType)}, schemaValidations{items}, rxf(rxDefaultFmt, itemsPrefix)}),
+				newSingleLineTagParser(fmt.Sprintf("items%dExample", level), &setExample{&spec.SimpleSchema{Type: string(schemeType)}, schemaValidations{items}, rxf(rxExampleFmt, itemsPrefix)}),
 			}
 		}
 
@@ -833,7 +837,7 @@ func hasFilePathPrefix(s, prefix string) bool {
 func (scp *schemaParser) packageForFile(gofile *ast.File, tpe *ast.Ident) (*loader.PackageInfo, error) {
 	fn := scp.program.Fset.File(gofile.Pos()).Name()
 	if Debug {
-		log.Println("trying for", fn)
+		log.Println("trying for", fn, tpe.Name, tpe.String())
 	}
 	fa, err := filepath.Abs(fn)
 	if err != nil {
@@ -941,8 +945,15 @@ func (scp *schemaParser) makeRef(file *ast.File, pkg *loader.PackageInfo, gd *as
 }
 
 func (scp *schemaParser) parseIdentProperty(pkg *loader.PackageInfo, expr *ast.Ident, prop swaggerTypable) error {
+	// before proceeding make an exception to time.Time because it is a well known string format
+	if pkg.String() == "time" && expr.String() == "Time" {
+		prop.Typed("string", "date-time")
+		return nil
+	}
+
 	// find the file this selector points to
 	file, gd, ts, err := findSourceFile(pkg, expr.Name)
+
 	if err != nil {
 		err := swaggerSchemaForType(expr.Name, prop)
 		if err != nil {
@@ -985,6 +996,11 @@ func (scp *schemaParser) parseIdentProperty(pkg *loader.PackageInfo, expr *ast.I
 		return nil
 	}
 
+	if typeName, ok := typeName(gd.Doc); ok {
+		swaggerSchemaForType(typeName, prop)
+		return nil
+	}
+
 	if isAliasParam(prop) || aliasParam(gd.Doc) {
 		itype, ok := ts.Type.(*ast.Ident)
 		if ok {
@@ -994,7 +1010,6 @@ func (scp *schemaParser) parseIdentProperty(pkg *loader.PackageInfo, expr *ast.I
 			}
 		}
 	}
-
 	switch tpe := ts.Type.(type) {
 	case *ast.ArrayType:
 		return scp.makeRef(file, pkg, gd, ts, prop)
@@ -1128,6 +1143,23 @@ func defaultName(comments *ast.CommentGroup) (string, bool) {
 				matches := rxDefault.FindStringSubmatch(ln)
 				if len(matches) > 1 && len(strings.TrimSpace(matches[1])) > 0 {
 					return strings.TrimSpace(matches[1]), true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+func typeName(comments *ast.CommentGroup) (string, bool) {
+
+	var typ string
+	if comments != nil {
+		for _, cmt := range comments.List {
+			for _, ln := range strings.Split(cmt.Text, "\n") {
+				matches := rxType.FindStringSubmatch(ln)
+				if len(matches) > 1 && len(strings.TrimSpace(matches[1])) > 0 {
+					typ = strings.TrimSpace(matches[1])
+					return typ, true
 				}
 			}
 		}

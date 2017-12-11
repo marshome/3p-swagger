@@ -15,6 +15,8 @@
 package models
 
 import (
+	"time"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/go-swagger/go-swagger/fixtures/goparsing/classification/transitive/mods"
 )
@@ -46,6 +48,7 @@ type NoModel struct {
 	// minimum: 3
 	// maximum: 45
 	// multiple of: 3
+	// example: 27
 	Score int32 `json:"score"`
 
 	// Name of this no model instance
@@ -62,6 +65,11 @@ type NoModel struct {
 	// read only: true
 	Created strfmt.DateTime `json:"created"`
 
+	// GoTimeCreated holds the time when this entry was created in go time.Time
+	//
+	// required: false
+	GoTimeCreated time.Time `json:"gocreated"`
+
 	// a FooSlice has foos which are strings
 	//
 	// min items: 3
@@ -71,6 +79,13 @@ type NoModel struct {
 	// items.maxLength: 10
 	// items.pattern: \w+
 	FooSlice []string `json:"foo_slice"`
+
+	// a TimeSlice is a slice of times
+	//
+	// min items: 3
+	// max items: 10
+	// unique: true
+	TimeSlice []time.Time `json:"time_slice"`
 
 	// a BarSlice has bars which are strings
 	//
@@ -85,6 +100,17 @@ type NoModel struct {
 	// items.items.items.maxLength: 10
 	// items.items.items.pattern: \w+
 	BarSlice [][][]string `json:"bar_slice"`
+
+	// a DeepSlice has bars which are time
+	//
+	// min items: 3
+	// max items: 10
+	// unique: true
+	// items.minItems: 4
+	// items.maxItems: 9
+	// items.items.minItems: 5
+	// items.items.maxItems: 8
+	DeepTimeSlice [][][]time.Time `json:"deep_time_slice"`
 
 	// the items for this order
 	Items []struct {
@@ -109,6 +135,11 @@ type NoModel struct {
 		// minimum: 1
 		// maximum: 10
 		Quantity int16 `json:"quantity"`
+
+		// A dummy expiration date.
+		//
+		// required: true
+		Expiration time.Time `json:"expiration"`
 
 		// Notes to add to this item.
 		// This can be used to add special instructions.

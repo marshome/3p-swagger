@@ -90,7 +90,7 @@ for the {{ humanize .Name }} operation typically these are written to a http.Req
 type {{ pascalize .Name }}Params struct {
 
   {{ range .Params }}/*{{ pascalize .Name }}{{if .Description }}
-  {{ .Description }}
+  {{ blockcomment .Description }}
 
   {{ end }}*/
   {{ pascalize .ID }} {{ if and (not .IsArray) (not .IsMap) (not .HasDiscriminator) (not .IsInterface) (not .IsStream) (or .IsNullable  ) }}*{{ end }}{{ if not .IsFileParam }}{{ .GoType }}{{ else }}os.File{{end}}
@@ -235,13 +235,12 @@ func ({{ .ReceiverName }} *{{ pascalize .Name }}Params) WriteToRequest(r runtime
   {{ end }}
 
   {{if .IsBodyParam}}
-  {{ if and .Schema.IsComplexObject .Schema.IsNullable (not .HasDiscriminator) }}if {{ .ValueExpression }} == nil {
-    {{ .ValueExpression }} = {{ .ZeroValue }}
+  {{ if or .Schema.IsInterface (and .Schema.IsArray .Child .Child.IsInterface) (and .Schema.IsNullable (not .HasDiscriminator)) }}if {{ .ValueExpression }} != nil {
+    if err := r.SetBodyParam({{ .ValueExpression }}); err != nil {
+      return err
+    }
   }{{ end }}
 
-  if err := r.SetBodyParam({{ .ValueExpression }}); err != nil {
-    return err
-  }
   {{end}}
   {{end}}
   if len(res) > 0 {

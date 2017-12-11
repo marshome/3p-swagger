@@ -39,6 +39,7 @@ const (
 	binary      = "binary"
 	xNullable   = "x-nullable"
 	xIsNullable = "x-isnullable"
+	xOmitEmpty  = "x-omitempty"
 	sHTTP       = "http"
 	body        = "body"
 )
@@ -293,14 +294,8 @@ func (t *typeResolver) resolveSchemaRef(schema *spec.Schema, isRequired bool) (r
 		returns = true
 		var ref *spec.Schema
 		var er error
-		if t.Doc.SpecFilePath() != "" {
-			if Debug {
-				log.Printf("loading with base: %s", t.Doc.SpecFilePath())
-			}
-			ref, er = spec.ResolveRefWithBase(t.Doc.Spec(), &schema.Ref, &spec.ExpandOptions{RelativeBase: t.Doc.SpecFilePath()})
-		} else {
-			ref, er = spec.ResolveRef(t.Doc.Spec(), &schema.Ref)
-		}
+
+		ref, er = spec.ResolveRef(t.Doc.Spec(), &schema.Ref)
 		if er != nil {
 			if Debug {
 				log.Print("error resolving", er)
@@ -394,6 +389,12 @@ func (t *typeResolver) isNullable(schema *spec.Schema) bool {
 	return len(schema.Properties) > 0
 }
 
+func (t *typeResolver) IsEmptyOmitted(schema *spec.Schema) bool {
+	v, found := schema.Extensions[xOmitEmpty]
+	omitted, cast := v.(bool)
+	return found && cast && omitted
+}
+
 func (t *typeResolver) firstType(schema *spec.Schema) string {
 	if len(schema.Type) == 0 || schema.Type[0] == "" {
 		return object
@@ -409,6 +410,7 @@ func (t *typeResolver) resolveArray(schema *spec.Schema, isAnonymous, isRequired
 
 	result.IsArray = true
 	result.IsNullable = false
+	result.IsEmptyOmitted = t.IsEmptyOmitted(schema)
 	if schema.AdditionalItems != nil {
 		result.HasAdditionalItems = (schema.AdditionalItems.Allows || schema.AdditionalItems.Schema != nil)
 	}
@@ -448,6 +450,7 @@ func (t *typeResolver) resolveArray(schema *spec.Schema, isAnonymous, isRequired
 	result.SwaggerType = array
 	result.SwaggerFormat = ""
 	t.inferAliasing(&result, schema, isAnonymous, isRequired)
+	result.Extensions = schema.Extensions
 
 	return
 }
@@ -646,6 +649,7 @@ func (t *typeResolver) ResolveSchema(schema *spec.Schema, isAnonymous, isRequire
 		return t.resolveArray(schema, isAnonymous, false)
 
 	case file, number, integer, boolean:
+		result.Extensions = schema.Extensions
 		result.GoType = typeMapping[tpe]
 		result.SwaggerType = tpe
 		t.inferAliasing(&result, schema, isAnonymous, isRequired)
@@ -670,6 +674,7 @@ func (t *typeResolver) ResolveSchema(schema *spec.Schema, isAnonymous, isRequire
 
 		result.IsPrimitive = true
 		result.IsNullable = nullableString(schema, isRequired)
+		result.Extensions = schema.Extensions
 		return
 
 	case object:
@@ -706,6 +711,7 @@ type resolvedType struct {
 	IsNullable        bool
 	IsStream          bool
 	HasDiscriminator  bool
+	IsEmptyOmitted    bool
 
 	// A tuple gets rendered as an anonymous struct with P{index} as property name
 	IsTuple            bool
@@ -719,6 +725,7 @@ type resolvedType struct {
 	AliasedType   string
 	SwaggerType   string
 	SwaggerFormat string
+	Extensions    spec.Extensions
 
 	ElemType *resolvedType
 }
