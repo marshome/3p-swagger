@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -74,11 +75,11 @@ var (
 )
 
 // BuildHTTP creates a new http request based on the data from the params
-func (r *request) BuildHTTP(mediaType string, producers map[string]runtime.Producer, registry strfmt.Registry) (*http.Request, error) {
-	return r.buildHTTP(mediaType, producers, registry, nil)
+func (r *request) BuildHTTP(mediaType, basePath string, producers map[string]runtime.Producer, registry strfmt.Registry) (*http.Request, error) {
+	return r.buildHTTP(mediaType, basePath, producers, registry, nil)
 }
 
-func (r *request) buildHTTP(mediaType string, producers map[string]runtime.Producer, registry strfmt.Registry, auth runtime.ClientAuthInfoWriter) (*http.Request, error) {
+func (r *request) buildHTTP(mediaType, basePath string, producers map[string]runtime.Producer, registry strfmt.Registry, auth runtime.ClientAuthInfoWriter) (*http.Request, error) {
 	// build the data
 	if err := r.writer.WriteToRequest(r, registry); err != nil {
 		return nil, err
@@ -91,9 +92,16 @@ func (r *request) buildHTTP(mediaType string, producers map[string]runtime.Produ
 	}
 
 	// create http request
-	path := r.pathPattern
+	var reinstateSlash bool
+	if r.pathPattern != "" && r.pathPattern != "/" && r.pathPattern[len(r.pathPattern)-1] == '/' {
+		reinstateSlash = true
+	}
+	urlPath := path.Join(basePath, r.pathPattern)
 	for k, v := range r.pathParams {
-		path = strings.Replace(path, "{"+k+"}", v, -1)
+		urlPath = strings.Replace(urlPath, "{"+k+"}", url.PathEscape(v), -1)
+	}
+	if reinstateSlash {
+		urlPath = urlPath + "/"
 	}
 
 	var body io.ReadCloser
@@ -103,24 +111,26 @@ func (r *request) buildHTTP(mediaType string, producers map[string]runtime.Produ
 	r.buf = bytes.NewBuffer(nil)
 	if r.payload != nil || len(r.formFields) > 0 || len(r.fileFields) > 0 {
 		body = ioutil.NopCloser(r.buf)
-		if (runtime.MultipartFormMime == mediaType && len(r.formFields) > 0) || r.fileFields != nil {
+		if ((runtime.MultipartFormMime == mediaType || runtime.URLencodedFormMime == mediaType) && len(r.formFields) > 0) || r.fileFields != nil {
 			pr, pw = io.Pipe()
 			body = pr
 		}
 	}
-	req, err := http.NewRequest(r.method, path, body)
+	req, err := http.NewRequest(r.method, urlPath, body)
+
 	if err != nil {
 		return nil, err
 	}
+
 	req.URL.RawQuery = r.query.Encode()
 	req.Header = r.header
 
 	// check if this is a form type request
 	if len(r.formFields) > 0 || len(r.fileFields) > 0 {
 		// check if this is multipart
-		if runtime.MultipartFormMime == mediaType || len(r.fileFields) > 0 {
+		if runtime.MultipartFormMime == mediaType || runtime.URLencodedFormMime == mediaType || len(r.fileFields) > 0 {
 			mp := multipart.NewWriter(pw)
-			req.Header.Set(runtime.HeaderContentType, mp.FormDataContentType())
+			req.Header.Set(runtime.HeaderContentType, mangleContentType(mediaType, mp.Boundary()))
 
 			go func() {
 				defer func() {
@@ -168,7 +178,6 @@ func (r *request) buildHTTP(mediaType string, producers map[string]runtime.Produ
 		req.ContentLength = int64(len(formString))
 		// write the form values as the body
 		r.buf.WriteString(formString)
-
 		return req, nil
 	}
 
@@ -188,6 +197,19 @@ func (r *request) buildHTTP(mediaType string, producers map[string]runtime.Produ
 			req.Body = ioutil.NopCloser(rdr)
 
 			return req, nil
+		}
+
+		req.GetBody = func() (io.ReadCloser, error) {
+			var b bytes.Buffer
+			producer := producers[mediaType]
+			if err := producer.Produce(&b, r.payload); err != nil {
+				return nil, err
+			}
+
+			if _, err := r.buf.Write(b.Bytes()); err != nil {
+				return nil, err
+			}
+			return ioutil.NopCloser(&b), nil
 		}
 
 		// set the content length of the request or else a chunked transfer is
@@ -218,6 +240,13 @@ func (r *request) buildHTTP(mediaType string, producers map[string]runtime.Produ
 	}
 
 	return req, nil
+}
+
+func mangleContentType(mediaType, boundary string) string {
+	if strings.ToLower(mediaType) == runtime.URLencodedFormMime {
+		return fmt.Sprintf("%s; boundary=%s", mediaType, boundary)
+	}
+	return "multipart/form-data; boundary=" + boundary
 }
 
 func (r *request) GetMethod() string {

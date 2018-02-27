@@ -23,7 +23,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	goruntime "runtime"
 	"sort"
 	"strings"
 	"text/template"
@@ -44,7 +43,7 @@ import (
 // LanguageOpts to describe a language to the code generator
 type LanguageOpts struct {
 	ReservedWords    []string
-	BaseImportFunc   func(string) string
+	BaseImportFunc   func(string) string `json:"-"`
 	reservedWordsSet map[string]struct{}
 	initialized      bool
 	formatFunc       func(string, []byte) ([]byte, error)
@@ -145,15 +144,6 @@ func GoLangOpts() *LanguageOpts {
 			gopathExtended = filepath.Join(gopathExtended, "src")
 			gp = filepath.Join(gp, "src")
 
-			// Windows (local) file systems - NTFS, as well as FAT and variants
-			// are case insensitive.
-			if goruntime.GOOS == "windows" {
-				tgtAbsPath = strings.ToLower(tgtAbsPath)
-				tgtAbsPathExtended = strings.ToLower(tgtAbsPathExtended)
-				gopathExtended = strings.ToLower(gopathExtended)
-				gp = strings.ToLower(gp)
-			}
-
 			// At this stage we have expanded and unexpanded target path. GOPATH is fully expanded.
 			// Expanded means symlink free.
 			// We compare both types of targetpath<s> with gopath.
@@ -201,10 +191,6 @@ func GoLangOpts() *LanguageOpts {
 	return opts
 }
 
-// Debug when the env var DEBUG or SWAGGER_DEBUG is not empty
-// the generators will be very noisy about what they are doing
-var Debug = os.Getenv("DEBUG") != "" || os.Getenv("SWAGGER_DEBUG") != ""
-
 func findSwaggerSpec(nm string) (string, error) {
 	specs := []string{"swagger.json", "swagger.yml", "swagger.yaml"}
 	if nm != "" {
@@ -233,7 +219,7 @@ func findSwaggerSpec(nm string) (string, error) {
 
 // DefaultSectionOpts for a given opts, this is used when no config file is passed
 // and uses the embedded templates when no local override can be found
-func DefaultSectionOpts(gen *GenOpts, client bool) {
+func DefaultSectionOpts(gen *GenOpts) {
 	sec := gen.Sections
 	if len(sec.Models) == 0 {
 		sec.Models = []TemplateOpts{
@@ -247,7 +233,7 @@ func DefaultSectionOpts(gen *GenOpts, client bool) {
 	}
 
 	if len(sec.Operations) == 0 {
-		if client {
+		if gen.IsClient {
 			sec.Operations = []TemplateOpts{
 				{
 					Name:     "parameters",
@@ -302,7 +288,7 @@ func DefaultSectionOpts(gen *GenOpts, client bool) {
 	}
 
 	if len(sec.OperationGroups) == 0 {
-		if client {
+		if gen.IsClient {
 			sec.OperationGroups = []TemplateOpts{
 				{
 					Name:     "client",
@@ -317,7 +303,7 @@ func DefaultSectionOpts(gen *GenOpts, client bool) {
 	}
 
 	if len(sec.Application) == 0 {
-		if client {
+		if gen.IsClient {
 			sec.Application = []TemplateOpts{
 				{
 					Name:     "facade",
@@ -392,20 +378,22 @@ type SectionOpts struct {
 
 // GenOpts the options for the generator
 type GenOpts struct {
-	IncludeModel      bool
-	IncludeValidator  bool
-	IncludeHandler    bool
-	IncludeParameters bool
-	IncludeResponses  bool
-	IncludeURLBuilder bool
-	IncludeMain       bool
-	IncludeSupport    bool
-	ExcludeSpec       bool
-	DumpData          bool
-	WithContext       bool
-	ValidateSpec      bool
-	FlattenSpec       bool
-	defaultsEnsured   bool
+	IncludeModel       bool
+	IncludeValidator   bool
+	IncludeHandler     bool
+	IncludeParameters  bool
+	IncludeResponses   bool
+	IncludeURLBuilder  bool
+	IncludeMain        bool
+	IncludeSupport     bool
+	ExcludeSpec        bool
+	DumpData           bool
+	WithContext        bool
+	ValidateSpec       bool
+	FlattenSpec        bool
+	FlattenDefinitions bool
+	IsClient           bool
+	defaultsEnsured    bool
 
 	Spec              string
 	APIPackage        string
@@ -487,11 +475,11 @@ func (g *GenOpts) SpecPath() string {
 }
 
 // EnsureDefaults for these gen opts
-func (g *GenOpts) EnsureDefaults(client bool) error {
+func (g *GenOpts) EnsureDefaults() error {
 	if g.defaultsEnsured {
 		return nil
 	}
-	DefaultSectionOpts(g, client)
+	DefaultSectionOpts(g)
 	if g.LanguageOpts == nil {
 		g.LanguageOpts = GoLangOpts()
 	}
@@ -560,6 +548,7 @@ func (g *GenOpts) location(t *TemplateOpts, data interface{}) (string, string, e
 
 func (g *GenOpts) render(t *TemplateOpts, data interface{}) ([]byte, error) {
 	var templ *template.Template
+
 	if strings.HasPrefix(strings.ToLower(t.Source), "asset:") {
 		tt, err := templates.Get(strings.TrimPrefix(t.Source, "asset:"))
 		if err != nil {
@@ -569,7 +558,17 @@ func (g *GenOpts) render(t *TemplateOpts, data interface{}) ([]byte, error) {
 	}
 
 	if templ == nil {
+		// try to load from repository (and enable dependencies)
+		name := swag.ToJSONName(strings.TrimSuffix(t.Source, ".gotmpl"))
+		tt, err := templates.Get(name)
+		if err == nil {
+			templ = tt
+		}
+	}
+
+	if templ == nil {
 		// try to load template from disk, in TemplateDir if specified
+		// (dependencies resolution is limited to preloaded assets)
 		var templateFile string
 		if g.TemplateDir != "" {
 			templateFile = filepath.Join(g.TemplateDir, t.Source)
@@ -583,10 +582,10 @@ func (g *GenOpts) render(t *TemplateOpts, data interface{}) ([]byte, error) {
 		tt, err := template.New(t.Source).Funcs(FuncMap).Parse(string(content))
 		if err != nil {
 			return nil, fmt.Errorf("template parsing failed on template %s: %v", t.Name, err)
-			//return nil, err
 		}
 		templ = tt
 	}
+
 	if templ == nil {
 		return nil, fmt.Errorf("template %q not found", t.Source)
 	}
@@ -933,16 +932,27 @@ func validateAndFlattenSpec(opts *GenOpts, specDoc *loads.Document) (*loads.Docu
 		cwd, _ := os.Getwd()
 		absBasePath = filepath.Join(cwd, absBasePath)
 	}
+
 	/********************************************************************************************/
 	/* Either flatten or expand should be called here before moving on the code generation part */
 	/********************************************************************************************/
-	flattenOpts := analysis.FlattenOpts{
-		Expand: !opts.FlattenSpec,
-		// BasePath must be absolute. This is guaranteed because opts.Spec is absolute
-		BasePath: absBasePath,
-		Spec:     analysis.New(specDoc.Spec()),
+	if opts.FlattenSpec {
+		flattenOpts := analysis.FlattenOpts{
+			Expand: false,
+			// BasePath must be absolute. This is guaranteed because opts.Spec is absolute
+			BasePath: absBasePath,
+			Spec:     analysis.New(specDoc.Spec()),
+		}
+		err = analysis.Flatten(flattenOpts)
+	} else {
+		err = spec.ExpandSpec(specDoc.Spec(), &spec.ExpandOptions{
+			RelativeBase: absBasePath,
+			SkipSchemas:  false,
+		})
 	}
-	err = analysis.Flatten(flattenOpts)
+	if err != nil {
+		return nil, err
+	}
 
 	return specDoc, nil
 }
