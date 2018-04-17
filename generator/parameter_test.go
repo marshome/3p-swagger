@@ -959,6 +959,29 @@ func TestGenParameter_Issue1111(t *testing.T) {
 	}
 }
 
+func TestGenParameter_Issue1462(t *testing.T) {
+	assert := assert.New(t)
+
+	gen, err := opBuilder("start-es-cluster-instances", "../fixtures/bugs/1462/arrayParam.json")
+	if assert.NoError(err) {
+		op, err := gen.MakeOperation()
+		if assert.NoError(err) {
+			buf := bytes.NewBuffer(nil)
+			opts := opts()
+			err := templates.MustGet("clientParameter").Execute(buf, op)
+			if assert.NoError(err) {
+				ff, err := opts.LanguageOpts.FormatContent("post_clusters_elasticsearch_cluster_id_instances_instance_ids_start_parameters.go", buf.Bytes())
+				if assert.NoError(err) {
+					res := string(ff)
+					assertInCode(t, `if len(joinedInstanceIds) > 0 {`, res)
+				} else {
+					fmt.Println(buf.String())
+				}
+			}
+		}
+	}
+}
+
 func TestGenParameter_Issue1199(t *testing.T) {
 	assert := assert.New(t)
 	var assertion = `if o.Body != nil {
@@ -1414,6 +1437,249 @@ func TestGenParameter_Issue909(t *testing.T) {
 	for fixtureIndex, fixtureContents := range fixtureConfig {
 		fixtureSpec := strings.Join([]string{"fixture-909-", fixtureIndex, ".yaml"}, "")
 		gen, err := opBuilder("getOptional", filepath.Join("..", "fixtures", "bugs", "909", fixtureSpec))
+		if assert.NoError(err) {
+			op, err := gen.MakeOperation()
+			if assert.NoError(err) {
+				opts := opts()
+				for fixtureTemplate, expectedCode := range fixtureContents {
+					buf := bytes.NewBuffer(nil)
+					err := templates.MustGet(fixtureTemplate).Execute(buf, op)
+					if assert.NoError(err, "Expected generation to go well on %s with template %s", fixtureSpec, fixtureTemplate) {
+						ff, err := opts.LanguageOpts.FormatContent("foo.go", buf.Bytes())
+						if assert.NoError(err, "Expected formatting to go well on %s with template %s", fixtureSpec, fixtureTemplate) {
+							res := string(ff)
+							for line, codeLine := range expectedCode {
+								if !assertInCode(t, codeLine, res) {
+									t.Logf("Code expected did not match for fixture %s at line %d", fixtureSpec, line)
+								}
+							}
+						} else {
+							fmt.Println(buf.String())
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// verifies that validation method is called on body param with $ref
+func TestGenParameter_Issue1237(t *testing.T) {
+	log.SetOutput(ioutil.Discard)
+	defer func() {
+		log.SetOutput(os.Stdout)
+	}()
+
+	assert := assert.New(t)
+	fixtureConfig := map[string]map[string][]string{
+		"1": map[string][]string{ // fixture index
+			"serverParameter": []string{ // executed template
+				// expected code lines
+				`var body models.Sg`,
+				`if err := route.Consumer.Consume(r.Body, &body); err != nil {`,
+				`if err == io.EOF {`,
+				`res = append(res, errors.Required("body", "body"))`,
+				`} else {`,
+				`res = append(res, errors.NewParseError("body", "body", "", err))`,
+				`if err := body.Validate(route.Formats); err != nil {`,
+			},
+		},
+	}
+	for _, fixtureContents := range fixtureConfig {
+		fixtureSpec := strings.Join([]string{"fixture-1237", ".json"}, "")
+		gen, err := opBuilder("add sg", filepath.Join("..", "fixtures", "bugs", "1237", fixtureSpec))
+		if assert.NoError(err) {
+			op, err := gen.MakeOperation()
+			if assert.NoError(err) {
+				opts := opts()
+				for fixtureTemplate, expectedCode := range fixtureContents {
+					buf := bytes.NewBuffer(nil)
+					err := templates.MustGet(fixtureTemplate).Execute(buf, op)
+					if assert.NoError(err, "Expected generation to go well on %s with template %s", fixtureSpec, fixtureTemplate) {
+						ff, err := opts.LanguageOpts.FormatContent("foo.go", buf.Bytes())
+						if assert.NoError(err, "Expected formatting to go well on %s with template %s", fixtureSpec, fixtureTemplate) {
+							res := string(ff)
+							for line, codeLine := range expectedCode {
+								if !assertInCode(t, codeLine, res) {
+									t.Logf("Code expected did not match for fixture %s at line %d", fixtureSpec, line)
+								}
+							}
+						} else {
+							fmt.Println(buf.String())
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestGenParameter_Issue1392(t *testing.T) {
+	log.SetOutput(ioutil.Discard)
+	defer func() {
+		log.SetOutput(os.Stdout)
+	}()
+
+	assert := assert.New(t)
+	fixtureConfig := map[string]map[string][]string{
+		"1": map[string][]string{ // fixture index
+			"serverParameter": []string{ // executed template
+				`func (o *PatchSomeResourceParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {`,
+				`	var res []error`,
+				`	o.HTTPRequest = r`,
+				`	if runtime.HasBody(r) {`,
+				`		defer r.Body.Close()`,
+				`		var body models.BulkUpdateState`,
+				`		if err := route.Consumer.Consume(r.Body, &body); err != nil {`,
+				`			res = append(res, errors.NewParseError("massUpdate", "body", "", err))`,
+				`		} else {`,
+				`			if err := body.Validate(route.Formats); err != nil {`,
+				`				res = append(res, err)`,
+				`			if len(res) == 0 {`,
+				`				o.MassUpdate = body`,
+				`	if len(res) > 0 {`,
+				`		return errors.CompositeValidationError(res...)`,
+			},
+		},
+		"2": map[string][]string{ // fixture index
+			"serverParameter": []string{ // executed template
+				// expected code lines
+				`func (o *PostBodybuilder20Params) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {`,
+				`	var res []error`,
+				`	o.HTTPRequest = r`,
+				`	if runtime.HasBody(r) {`,
+				`		defer r.Body.Close()`,
+				`		var body []strfmt.URI`,
+				`		if err := route.Consumer.Consume(r.Body, &body); err != nil {`,
+				`			res = append(res, errors.NewParseError("myObject", "body", "", err))`,
+				`		} else {`,
+				`			// validate inline body array`,
+				`			o.MyObject = body`,
+				`			if err := o.validateMyObjectBody(route.Formats); err != nil {`,
+				`				res = append(res, err)`,
+				`	if len(res) > 0 {`,
+				`		return errors.CompositeValidationError(res...)`,
+				`func (o *PostBodybuilder20Params) validateMyObjectBody(formats strfmt.Registry) error {`,
+				`	// uniqueItems: true`,
+				`	if err := validate.UniqueItems("myObject", "body", o.MyObject); err != nil {`,
+				`	myObjectIC := o.MyObject`,
+				`	var myObjectIR []strfmt.URI`,
+				`	for i, myObjectIV := range myObjectIC {`,
+				`		myObjectI := myObjectIV`,
+				`		if err := validate.FormatOf(fmt.Sprintf("%s.%v", "myObject", i), "body", "uri", myObjectI.String(), formats); err != nil {`,
+				`		myObjectIR = append(myObjectIR, myObjectI)`,
+				`	o.MyObject = myObjectIR`,
+			},
+		},
+		"3": map[string][]string{ // fixture index
+			"serverParameter": []string{ // executed template
+				// expected code lines
+				`func (o *PostBodybuilder26Params) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {`,
+				`	var res []error`,
+				`	o.HTTPRequest = r`,
+				`	qs := runtime.Values(r.URL.Query())`,
+				`	if runtime.HasBody(r) {`,
+				`		defer r.Body.Close()`,
+				`		var body strfmt.Date`,
+				`		if err := route.Consumer.Consume(r.Body, &body); err != nil {`,
+				`			res = append(res, errors.NewParseError("myObject", "body", "", err))`,
+				`		} else {`,
+				`			// validate inline body`,
+				`			o.MyObject = body`,
+				`			if err := o.validateMyObjectBody(route.Formats); err != nil {`,
+				`				res = append(res, err)`,
+				`	qMyquery, qhkMyquery, _ := qs.GetOK("myquery")`,
+				`	if err := o.bindMyquery(qMyquery, qhkMyquery, route.Formats); err != nil {`,
+				`		res = append(res, err)`,
+				`	if len(res) > 0 {`,
+				`		return errors.CompositeValidationError(res...)`,
+				`	return nil`,
+				`func (o *PostBodybuilder26Params) validateMyObjectBody(formats strfmt.Registry) error {`,
+				`	if err := validate.Enum("myObject", "body", o.MyObject.String(), []interface{}{"1992-01-01", "2012-01-01"}); err != nil {`,
+				`	if err := validate.FormatOf("myObject", "body", "date", o.MyObject.String(), formats); err != nil {`,
+			},
+		},
+		"4": map[string][]string{ // fixture index
+			"serverParameter": []string{ // executed template
+				// expected code lines
+				`func (o *PostBodybuilder27Params) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {`,
+				`	var res []error`,
+				`	o.HTTPRequest = r`,
+				`	if runtime.HasBody(r) {`,
+				`		defer r.Body.Close()`,
+				`		var body [][]strfmt.Date`,
+				`		if err := route.Consumer.Consume(r.Body, &body); err != nil {`,
+				`			res = append(res, errors.NewParseError("myObject", "body", "", err))`,
+				`		} else {`,
+				`			o.MyObject = body`,
+				`			if err := o.validateMyObjectBody(route.Formats); err != nil {`,
+				`				res = append(res, err)`,
+				`	if len(res) > 0 {`,
+				`		return errors.CompositeValidationError(res...)`,
+				`func (o *PostBodybuilder27Params) validateMyObjectBody(formats strfmt.Registry) error {`,
+				`	if err := validate.Enum("myObject", "body", o.MyObject, []interface{}{[]interface{}{[]interface{}{"1992-01-01", "2012-01-01"}}}); err != nil {`,
+				`		return err`,
+				`	myObjectIC := o.MyObject`,
+				`	var myObjectIR [][]strfmt.Date`,
+				`	for i, myObjectIV := range myObjectIC {`,
+				`		myObjectIIC := myObjectIV`,
+				`		if len(myObjectIIC) > 0 {`,
+				`			var myObjectIIR []strfmt.Date`,
+				`			for ii, myObjectIIV := range myObjectIIC {`,
+				`				myObjectII := myObjectIIV`,
+				`				if err := validate.Enum(fmt.Sprintf("%s.%v", fmt.Sprintf("%s.%v", "myObject", i), ii), "", myObjectII.String(), []interface{}{"1992-01-01", "2012-01-01"}); err != nil {`,
+				`					return err`,
+				`				if err := validate.FormatOf(fmt.Sprintf("%s.%v", fmt.Sprintf("%s.%v", "myObject", i), ii), "", "date", myObjectII.String(), formats); err != nil {`,
+				`					return err`,
+				`				myObjectIIR = append(myObjectIIR, myObjectII)`,
+				`			myObjectIR = append(myObjectIR, myObjectIIR)`,
+				`	o.MyObject = myObjectIR`,
+			},
+		},
+		"5": map[string][]string{ // fixture index
+			"serverParameter": []string{ // executed template
+				`func (o *Bodybuilder23Params) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {`,
+				`	var res []error`,
+				`	o.HTTPRequest = r`,
+				`	if runtime.HasBody(r) {`,
+				`		defer r.Body.Close()`,
+				`		var body []models.ASimpleArray`,
+				`		if err := route.Consumer.Consume(r.Body, &body); err != nil {`,
+				`			res = append(res, errors.NewParseError("myObject", "body", "", err))`,
+				`		} else {`,
+				`			o.MyObject = body`,
+				`			myObjectSize := int64(len(o.MyObject))`,
+				`			if err := validate.MinItems("myObject", "body", myObjectSize, 15); err != nil {`,
+				`				return err`,
+				`			for _, io := range o.MyObject {`,
+				`				if err := io.Validate(route.Formats); err != nil {`,
+				`					res = append(res, err)`,
+				`					break`,
+				`			if len(res) == 0 {`,
+				`				o.MyObject = body`,
+				`	if len(res) > 0 {`,
+				`		return errors.CompositeValidationError(res...)`,
+			},
+		},
+	}
+
+	for fixtureIndex, fixtureContents := range fixtureConfig {
+		fixtureSpec := strings.Join([]string{"fixture-1392-", fixtureIndex, ".yaml"}, "")
+		// pick selected operation id in fixture
+		operationToTest := ""
+		switch fixtureIndex {
+		case "1":
+			operationToTest = "PatchSomeResource"
+		case "2":
+			operationToTest = "PostBodybuilder20"
+		case "3":
+			operationToTest = "PostBodybuilder26"
+		case "4":
+			operationToTest = "PostBodybuilder27"
+		case "5":
+			operationToTest = "Bodybuilder23"
+		}
+		gen, err := opBuilder(operationToTest, filepath.Join("..", "fixtures", "bugs", "1392", fixtureSpec))
 		if assert.NoError(err) {
 			op, err := gen.MakeOperation()
 			if assert.NoError(err) {
