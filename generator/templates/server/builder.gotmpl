@@ -23,7 +23,7 @@ import (
   runtime "github.com/go-openapi/runtime"
   middleware "github.com/go-openapi/runtime/middleware"
   security "github.com/go-openapi/runtime/security"
-  "github.com/NeuronFramework/restful"
+  "github.com/NeuronFramework/rest"
 
   {{ range .DefaultImports }}{{ printf "%q" . }}
   {{ end }}
@@ -42,7 +42,7 @@ func New{{ pascalize .Name }}API(spec *loads.Document) *{{ pascalize .Name }}API
     customProducers:        make(map[string]runtime.Producer),
     ServerShutdown:         func() {  },
     spec:                   spec,
-    ServeError:             restful.ServeError,
+    ServeError:             rest.ServeError,
     BasicAuthenticator:     security.BasicAuth,
     APIKeyAuthenticator:    security.APIKeyAuth,
     BearerAuthenticator:    security.BearerAuth,
